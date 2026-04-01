@@ -55,6 +55,8 @@ use async_trait::async_trait;
 use http::HeaderMap;
 use http::StatusCode;
 use hyper::Response;
+use schemars::schema::InstanceType;
+use schemars::schema::SchemaObject;
 use schemars::JsonSchema;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
@@ -926,6 +928,10 @@ pub trait HttpResponseContent {
     fn to_response(self, builder: http::response::Builder)
         -> HttpHandlerResult;
 
+    fn content_type() -> ApiEndpointBodyContentType {
+        ApiEndpointBodyContentType::Json
+    }
+
     // TODO the return type here could be something more elegant that is able
     // to produce the map of mime type -> openapiv3::MediaType that's needed in
     // in api_description. One could imagine, for example, that this could
@@ -933,6 +939,20 @@ pub trait HttpResponseContent {
     // with multiple, explicitly enumerated mime types.
     // TODO the ApiSchemaGenerator type is particularly inelegant.
     fn content_metadata() -> Option<ApiSchemaGenerator>;
+}
+
+fn binary_content_metadata() -> ApiSchemaGenerator {
+    ApiSchemaGenerator::Static {
+        schema: Box::new(
+            SchemaObject {
+                instance_type: Some(InstanceType::String.into()),
+                format: Some(String::from("binary")),
+                ..Default::default()
+            }
+            .into(),
+        ),
+        dependencies: indexmap::IndexMap::default(),
+    }
 }
 
 impl HttpResponseContent for FreeformBody {
@@ -945,8 +965,12 @@ impl HttpResponseContent for FreeformBody {
             .body(self.0)?)
     }
 
+    fn content_type() -> ApiEndpointBodyContentType {
+        ApiEndpointBodyContentType::Bytes
+    }
+
     fn content_metadata() -> Option<ApiSchemaGenerator> {
-        None
+        Some(binary_content_metadata())
     }
 }
 
@@ -1057,6 +1081,7 @@ where
     }
     fn response_metadata() -> ApiEndpointResponse {
         ApiEndpointResponse {
+            content_type: Some(T::Body::content_type()),
             schema: T::Body::content_metadata(),
             success: Some(T::STATUS_CODE),
             description: Some(T::DESCRIPTION.to_string()),

@@ -35,6 +35,43 @@
         }
       }
     },
+    "/download": {
+      "get": {
+        "tags": [
+          "it"
+        ],
+        "operationId": "handler33",
+        "responses": {
+          "200": {
+            "description": "successful operation",
+            "headers": {
+              "Content-Disposition": {
+                "description": "RFC 6266 content disposition describing the downloaded filename",
+                "style": "simple",
+                "required": true,
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/octet-stream": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            }
+          },
+          "4XX": {
+            "$ref": "#/components/responses/Error"
+          },
+          "5XX": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
     "/dup1": {
       "get": {
         "tags": [
@@ -351,8 +388,11 @@
           "200": {
             "description": "successful operation",
             "content": {
-              "*/*": {
-                "schema": {}
+              "application/octet-stream": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
               }
             }
           },

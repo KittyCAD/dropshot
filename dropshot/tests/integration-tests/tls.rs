@@ -91,6 +91,8 @@ fn make_https_client<
     >,
     dropshot::Body,
 > {
+    common::install_rustls_default_provider();
+
     let tls_config = rustls::ClientConfig::builder()
         .dangerous()
         .with_custom_certificate_verifier(verifier)

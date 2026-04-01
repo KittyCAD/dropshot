@@ -37,6 +37,7 @@ use std::num::NonZeroU32;
 use std::panic;
 use std::pin::Pin;
 use std::sync::Arc;
+use std::sync::OnceLock;
 use std::task::{Context, Poll};
 use tokio::io::ReadBuf;
 use tokio::net::{TcpListener, TcpStream};
@@ -52,6 +53,15 @@ use thiserror::Error;
 
 // TODO Remove when we can remove `HttpServerStarter`
 type GenericError = Box<dyn std::error::Error + Send + Sync>;
+
+fn install_rustls_default_provider() {
+    static DEFAULT_PROVIDER: OnceLock<()> = OnceLock::new();
+
+    DEFAULT_PROVIDER.get_or_init(|| {
+        let _ =
+            rustls::crypto::aws_lc_rs::default_provider().install_default();
+    });
+}
 
 /// Endpoint-accessible context associated with a server.
 ///
@@ -543,6 +553,8 @@ impl TryFrom<&ConfigTls> for rustls::ServerConfig {
     type Error = BuildError;
 
     fn try_from(config: &ConfigTls) -> Result<Self, Self::Error> {
+        install_rustls_default_provider();
+
         let (mut cert_reader, mut key_reader): (
             Box<dyn std::io::BufRead>,
             Box<dyn std::io::BufRead>,

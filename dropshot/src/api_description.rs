@@ -366,6 +366,7 @@ pub struct ApiEndpointHeader {
 /// Metadata for an API endpoint response: type information and status code.
 #[derive(Debug, Default)]
 pub struct ApiEndpointResponse {
+    pub content_type: Option<ApiEndpointBodyContentType>,
     pub schema: Option<ApiSchemaGenerator>,
     pub headers: Vec<ApiEndpointHeader>,
     pub success: Option<StatusCode>,
@@ -911,8 +912,14 @@ impl<Context: ServerContext> ApiDescription<Context> {
                 };
                 let mut content = indexmap::IndexMap::new();
                 if !is_empty(&js) {
+                    let mime_type = endpoint
+                        .response
+                        .content_type
+                        .as_ref()
+                        .unwrap_or(&ApiEndpointBodyContentType::Json)
+                        .mime_type();
                     content.insert(
-                        CONTENT_TYPE_JSON.to_string(),
+                        mime_type.to_string(),
                         openapiv3::MediaType {
                             schema: Some(j2oas_schema(name.as_ref(), &js)),
                             ..Default::default()

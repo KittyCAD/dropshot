@@ -13,7 +13,17 @@ use dropshot::HandlerTaskMode;
 use dropshot::ServerContext;
 use slog::o;
 use std::io::Write;
+use std::sync::OnceLock;
 use tempfile::NamedTempFile;
+
+pub fn install_rustls_default_provider() {
+    static DEFAULT_PROVIDER: OnceLock<()> = OnceLock::new();
+
+    DEFAULT_PROVIDER.get_or_init(|| {
+        let _ =
+            rustls::crypto::aws_lc_rs::default_provider().install_default();
+    });
+}
 
 pub fn test_setup(
     test_name: &str,

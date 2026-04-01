@@ -367,6 +367,27 @@ async fn handler18(
 }
 
 #[derive(Serialize, JsonSchema)]
+struct DownloadHeaders {
+    /// RFC 6266 content disposition describing the downloaded filename
+    #[serde(rename = "Content-Disposition")]
+    content_disposition: String,
+}
+
+#[endpoint {
+    method = GET,
+    path = "/download",
+    tags = ["it"],
+}]
+async fn handler33(
+    _rqctx: RequestContext<()>,
+) -> Result<
+    HttpResponseHeaders<HttpResponseOk<FreeformBody>, DownloadHeaders>,
+    HttpError,
+> {
+    unimplemented!()
+}
+
+#[derive(Serialize, JsonSchema)]
 #[schemars(example = "example_object_with_example")]
 struct ObjectWithExample {
     id: u32,
@@ -715,6 +736,7 @@ fn make_api(
     api.register(handler16)?;
     api.register(handler17)?;
     api.register(handler18)?;
+    api.register(handler33)?;
     api.register(handler19)?;
     api.register(handler20)?;
     api.register(handler21)?;
