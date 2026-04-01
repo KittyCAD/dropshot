@@ -80,7 +80,7 @@ where
     })
     .collect::<Vec<_>>();
 
-    ExtractorMetadata { extension_mode, parameters }
+    ExtractorMetadata { extension_mode, parameters, request_body: None }
 }
 
 #[cfg(test)]

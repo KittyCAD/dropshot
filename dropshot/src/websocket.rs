@@ -67,6 +67,7 @@ impl HttpResponse for SwitchingToWebsocket {
         const UPGRADE_DESCRIPTION: &str =
             "Negotiating protocol upgrade from HTTP/1.1 to WebSocket";
         ApiEndpointResponse {
+            content_type: None,
             schema: Some(ApiSchemaGenerator::Static {
                 schema: Box::new(schemars::schema::Schema::Bool(false)),
                 dependencies: Default::default(),
@@ -208,6 +209,7 @@ impl ExclusiveExtractor for WebsocketUpgrade {
         ExtractorMetadata {
             parameters: vec![],
             extension_mode: ExtensionMode::Websocket,
+            request_body: None,
         }
     }
 }

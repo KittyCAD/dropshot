@@ -13,6 +13,7 @@ use crate::router::route_path_to_segments;
 use crate::router::HttpRouter;
 use crate::router::PathSegment;
 use crate::schema_util::j2oas_schema;
+use crate::schema_util::make_subschema_for;
 use crate::server::ServerContext;
 use crate::type_util::type_is_scalar;
 use crate::type_util::type_is_string_enum;
@@ -23,6 +24,7 @@ use crate::CONTENT_TYPE_URL_ENCODED;
 
 use http::Method;
 use http::StatusCode;
+use schemars::JsonSchema;
 use serde::de::Error;
 use serde::Deserialize;
 use serde::Serialize;
@@ -51,6 +53,7 @@ pub struct ApiEndpoint<Context: ServerContext> {
     pub method: Method,
     pub path: String,
     pub parameters: Vec<ApiEndpointParameter>,
+    pub request_body: Option<ApiEndpointRequestBody>,
     pub body_content_type: ApiEndpointBodyContentType,
     /// An override for the maximum allowed size of the request body.
     ///
@@ -93,6 +96,7 @@ impl<'a, Context: ServerContext> ApiEndpoint<Context> {
             method,
             path: path.to_string(),
             parameters: func_parameters.parameters,
+            request_body: func_parameters.request_body,
             body_content_type,
             request_body_max_bytes: None,
             response,
@@ -201,6 +205,7 @@ impl<'a> ApiEndpoint<StubContext> {
             method,
             path: path.to_string(),
             parameters: func_parameters.parameters,
+            request_body: func_parameters.request_body,
             body_content_type,
             request_body_max_bytes: None,
             response,
@@ -270,20 +275,6 @@ impl ApiEndpointParameter {
         }
     }
 
-    pub fn new_body(
-        content_type: ApiEndpointBodyContentType,
-        required: bool,
-        schema: ApiSchemaGenerator,
-        examples: Vec<String>,
-    ) -> Self {
-        Self {
-            metadata: ApiEndpointParameterMetadata::Body(content_type),
-            required,
-            schema,
-            examples,
-            description: None,
-        }
-    }
 }
 
 #[derive(Debug, Clone)]
@@ -298,10 +289,9 @@ pub enum ApiEndpointParameterMetadata {
     Path(String),
     Query(String),
     Header(String),
-    Body(ApiEndpointBodyContentType),
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Hash)]
 pub enum ApiEndpointBodyContentType {
     /// application/octet-stream
     Bytes,
@@ -312,6 +302,103 @@ pub enum ApiEndpointBodyContentType {
     UrlEncoded,
     /// multipart/form-data
     MultipartFormData,
+}
+
+#[derive(Debug)]
+pub struct ApiEndpointRequestBody {
+    pub required: bool,
+    pub content:
+        indexmap::IndexMap<ApiEndpointBodyContentType, ApiEndpointRequestBodyContent>,
+}
+
+impl ApiEndpointRequestBody {
+    pub fn for_type<T: JsonSchema>(
+        content_type: ApiEndpointBodyContentType,
+        required: bool,
+    ) -> Self {
+        Self::new(
+            content_type,
+            required,
+            ApiEndpointRequestBodyContent::for_type::<T>(),
+        )
+    }
+
+    pub fn new(
+        content_type: ApiEndpointBodyContentType,
+        required: bool,
+        content: ApiEndpointRequestBodyContent,
+    ) -> Self {
+        let mut content_map = indexmap::IndexMap::new();
+        content_map.insert(content_type, content);
+        Self {
+            required,
+            content: content_map,
+        }
+    }
+
+    pub fn add_content(
+        mut self,
+        content_type: ApiEndpointBodyContentType,
+        content: ApiEndpointRequestBodyContent,
+    ) -> Self {
+        self.content.insert(content_type, content);
+        self
+    }
+}
+
+#[derive(Debug)]
+pub struct ApiEndpointRequestBodyContent {
+    pub schema: ApiSchemaGenerator,
+    pub encoding:
+        indexmap::IndexMap<String, ApiEndpointRequestBodyEncoding>,
+}
+
+impl ApiEndpointRequestBodyContent {
+    pub fn for_type<T: JsonSchema>() -> Self {
+        Self::new(ApiSchemaGenerator::Gen {
+            name: T::schema_name,
+            schema: make_subschema_for::<T>,
+        })
+    }
+
+    pub fn new(schema: ApiSchemaGenerator) -> Self {
+        Self {
+            schema,
+            encoding: indexmap::IndexMap::new(),
+        }
+    }
+
+    pub fn encoding(
+        mut self,
+        field_name: impl Into<String>,
+        encoding: ApiEndpointRequestBodyEncoding,
+    ) -> Self {
+        self.encoding.insert(field_name.into(), encoding);
+        self
+    }
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ApiEndpointRequestBodyEncoding {
+    pub content_type: Option<String>,
+}
+
+impl ApiEndpointRequestBodyEncoding {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn content_type(mut self, content_type: impl Into<String>) -> Self {
+        self.content_type = Some(content_type.into());
+        self
+    }
+
+    fn to_openapiv3(&self) -> openapiv3::Encoding {
+        openapiv3::Encoding {
+            content_type: self.content_type.clone(),
+            ..Default::default()
+        }
+    }
 }
 
 impl ApiEndpointBodyContentType {
@@ -366,6 +453,7 @@ pub struct ApiEndpointHeader {
 /// Metadata for an API endpoint response: type information and status code.
 #[derive(Debug, Default)]
 pub struct ApiEndpointResponse {
+    pub content_type: Option<ApiEndpointBodyContentType>,
     pub schema: Option<ApiSchemaGenerator>,
     pub headers: Vec<ApiEndpointHeader>,
     pub success: Option<StatusCode>,
@@ -406,6 +494,15 @@ impl std::fmt::Debug for ApiSchemaGenerator {
             ApiSchemaGenerator::Static { schema, .. } => {
                 f.write_str(format!("{:?}", schema).as_str())
             }
+        }
+    }
+}
+
+impl ApiSchemaGenerator {
+    pub fn for_type<T: schemars::JsonSchema>() -> Self {
+        Self::Gen {
+            name: T::schema_name,
+            schema: make_subschema_for::<T>,
         }
     }
 }
@@ -776,9 +873,8 @@ impl<Context: ServerContext> ApiDescription<Context> {
             operation.parameters = endpoint
                 .parameters
                 .iter()
-                .filter_map(|param| {
+                .map(|param| {
                     let (name, location) = match &param.metadata {
-                        ApiEndpointParameterMetadata::Body(_) => return None,
                         ApiEndpointParameterMetadata::Path(name) => {
                             (name, ApiEndpointParameterLocation::Path)
                         }
@@ -815,73 +911,76 @@ impl<Context: ServerContext> ApiDescription<Context> {
                     };
                     match location {
                         ApiEndpointParameterLocation::Query => {
-                            Some(openapiv3::ReferenceOr::Item(
+                            openapiv3::ReferenceOr::Item(
                                 openapiv3::Parameter::Query {
                                     parameter_data,
                                     allow_reserved: false,
                                     style: openapiv3::QueryStyle::Form,
                                     allow_empty_value: None,
                                 },
-                            ))
+                            )
                         }
                         ApiEndpointParameterLocation::Path => {
-                            Some(openapiv3::ReferenceOr::Item(
+                            openapiv3::ReferenceOr::Item(
                                 openapiv3::Parameter::Path {
                                     parameter_data,
                                     style: openapiv3::PathStyle::Simple,
                                 },
-                            ))
+                            )
                         }
                         ApiEndpointParameterLocation::Header => {
-                            Some(openapiv3::ReferenceOr::Item(
+                            openapiv3::ReferenceOr::Item(
                                 openapiv3::Parameter::Header {
                                     parameter_data,
                                     style: Default::default(),
                                 },
-                            ))
+                            )
                         }
                     }
                 })
                 .collect::<Vec<_>>();
 
             operation.request_body = endpoint
-                .parameters
-                .iter()
-                .filter_map(|param| {
-                    let mime_type = match &param.metadata {
-                        ApiEndpointParameterMetadata::Body(ct) => {
-                            ct.mime_type()
-                        }
-                        _ => return None,
-                    };
-
-                    let (name, js) = match &param.schema {
-                        ApiSchemaGenerator::Gen { name, schema } => {
-                            (Some(name()), schema(&mut generator))
-                        }
-                        ApiSchemaGenerator::Static { schema, dependencies } => {
-                            definitions.extend(dependencies.clone());
-                            (None, schema.as_ref().clone())
-                        }
-                    };
-                    let schema = j2oas_schema(name.as_ref(), &js);
-
+                .request_body
+                .as_ref()
+                .map(|request_body| {
                     let mut content = indexmap::IndexMap::new();
-                    content.insert(
-                        mime_type.to_string(),
-                        openapiv3::MediaType {
-                            schema: Some(schema),
-                            ..Default::default()
-                        },
-                    );
+                    for (content_type, request_content) in &request_body.content {
+                        let (name, js) = match &request_content.schema {
+                            ApiSchemaGenerator::Gen { name, schema } => {
+                                (Some(name()), schema(&mut generator))
+                            }
+                            ApiSchemaGenerator::Static { schema, dependencies } => {
+                                definitions.extend(dependencies.clone());
+                                (None, schema.as_ref().clone())
+                            }
+                        };
+                        let schema = j2oas_schema(name.as_ref(), &js);
+                        content.insert(
+                            content_type.mime_type().to_string(),
+                            openapiv3::MediaType {
+                                schema: Some(schema),
+                                encoding: request_content
+                                    .encoding
+                                    .iter()
+                                    .map(|(field_name, encoding)| {
+                                        (
+                                            field_name.clone(),
+                                            encoding.to_openapiv3(),
+                                        )
+                                    })
+                                    .collect(),
+                                ..Default::default()
+                            },
+                        );
+                    }
 
-                    Some(openapiv3::ReferenceOr::Item(openapiv3::RequestBody {
+                    openapiv3::ReferenceOr::Item(openapiv3::RequestBody {
                         content,
-                        required: true,
+                        required: request_body.required,
                         ..Default::default()
-                    }))
-                })
-                .next();
+                    })
+                });
 
             match &endpoint.extension_mode {
                 ExtensionMode::None => {}
@@ -911,8 +1010,14 @@ impl<Context: ServerContext> ApiDescription<Context> {
                 };
                 let mut content = indexmap::IndexMap::new();
                 if !is_empty(&js) {
+                    let mime_type = endpoint
+                        .response
+                        .content_type
+                        .as_ref()
+                        .unwrap_or(&ApiEndpointBodyContentType::Json)
+                        .mime_type();
                     content.insert(
-                        CONTENT_TYPE_JSON.to_string(),
+                        mime_type.to_string(),
                         openapiv3::MediaType {
                             schema: Some(j2oas_schema(name.as_ref(), &js)),
                             ..Default::default()

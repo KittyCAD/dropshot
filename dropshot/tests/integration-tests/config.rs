@@ -329,6 +329,8 @@ async fn test_config_bind_address_https() {
             >,
             Body,
         > {
+            common::install_rustls_default_provider();
+
             // Configure TLS to trust the self-signed cert
             let mut root_store = rustls::RootCertStore { roots: vec![] };
             root_store
@@ -409,6 +411,8 @@ async fn test_config_bind_address_https_buffer() {
             >,
             Body,
         > {
+            common::install_rustls_default_provider();
+
             // Configure TLS to trust the self-signed cert
             let mut root_store = rustls::RootCertStore { roots: vec![] };
             root_store

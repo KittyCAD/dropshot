@@ -43,6 +43,43 @@
         }
       }
     },
+    "/download": {
+      "get": {
+        "tags": [
+          "it"
+        ],
+        "operationId": "handler33",
+        "responses": {
+          "200": {
+            "description": "successful operation",
+            "headers": {
+              "Content-Disposition": {
+                "description": "RFC 6266 content disposition describing the downloaded filename",
+                "style": "simple",
+                "required": true,
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/octet-stream": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            }
+          },
+          "4XX": {
+            "$ref": "#/components/responses/Error"
+          },
+          "5XX": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
     "/dup1": {
       "get": {
         "tags": [
@@ -329,6 +366,43 @@
         }
       }
     },
+    "/multipart-encoded": {
+      "post": {
+        "tags": [
+          "it"
+        ],
+        "operationId": "handler34",
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/MultipartEncodedBody"
+              },
+              "encoding": {
+                "body": {
+                  "contentType": "application/json"
+                },
+                "files": {
+                  "contentType": "application/octet-stream"
+                }
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "resource updated"
+          },
+          "4XX": {
+            "$ref": "#/components/responses/Error"
+          },
+          "5XX": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
     "/other_thing": {
       "get": {
         "tags": [
@@ -359,8 +433,11 @@
           "200": {
             "description": "successful operation",
             "content": {
-              "*/*": {
-                "schema": {}
+              "application/octet-stream": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
               }
             }
           },
@@ -1216,6 +1293,24 @@
           "request_id"
         ]
       },
+      "MultipartEncodedBody": {
+        "type": "object",
+        "properties": {
+          "body": {
+            "$ref": "#/components/schemas/BodyParam"
+          },
+          "files": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/UploadFile"
+            }
+          }
+        },
+        "required": [
+          "body",
+          "files"
+        ]
+      },
       "NestedObjectWithExample": {
         "example": {
           "nick_name": "baz"
@@ -1366,6 +1461,10 @@
         "required": [
           "items"
         ]
+      },
+      "UploadFile": {
+        "type": "string",
+        "format": "binary"
       },
       "WithXRustTypeForXRustAParam": {
         "x-rust-type": {

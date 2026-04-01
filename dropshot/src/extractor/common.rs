@@ -1,6 +1,7 @@
 // Copyright 2023 Oxide Computer Company
 
 use crate::api_description::ApiEndpointParameter;
+use crate::api_description::ApiEndpointRequestBody;
 use crate::api_description::{ApiEndpointBodyContentType, ExtensionMode};
 use crate::error::HttpError;
 use crate::server::ServerContext;
@@ -13,6 +14,7 @@ use async_trait::async_trait;
 pub struct ExtractorMetadata {
     pub extension_mode: ExtensionMode,
     pub parameters: Vec<ApiEndpointParameter>,
+    pub request_body: Option<ApiEndpointRequestBody>,
 }
 
 /// Extractors that require exclusive access to the underlying `hyper::Request`
@@ -120,6 +122,7 @@ impl RequestExtractor for () {
         ExtractorMetadata {
             extension_mode: ExtensionMode::None,
             parameters: vec![],
+            request_body: None,
         }
     }
 }
@@ -176,6 +179,8 @@ macro_rules! impl_rqextractor_for_tuple {
             let mut extension_mode = ExtensionMode::None;
             #[allow(unused_mut)]
             let mut parameters = vec![];
+            #[allow(unused_mut)]
+            let mut request_body = None;
             $(
                 let mut metadata = $S::metadata(_body_content_type.clone());
                 extension_mode = match (extension_mode, metadata.extension_mode) {
@@ -186,6 +191,11 @@ macro_rules! impl_rqextractor_for_tuple {
                     (_, x) => x,
                 };
                 parameters.append(&mut metadata.parameters);
+                if let Some(new_request_body) = metadata.request_body.take() {
+                    if request_body.replace(new_request_body).is_some() {
+                        panic!("multiple request bodies in tuple");
+                    }
+                }
             )+
 
             let mut metadata = X::metadata(_body_content_type.clone());
@@ -197,8 +207,13 @@ macro_rules! impl_rqextractor_for_tuple {
                 (_, x) => x,
             };
             parameters.append(&mut metadata.parameters);
+            if let Some(new_request_body) = metadata.request_body.take() {
+                if request_body.replace(new_request_body).is_some() {
+                    panic!("multiple request bodies in tuple");
+                }
+            }
 
-            ExtractorMetadata { extension_mode, parameters }
+            ExtractorMetadata { extension_mode, parameters, request_body }
         }
     }
 }}
