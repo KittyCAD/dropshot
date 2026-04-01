@@ -2,8 +2,9 @@
 
 //! Body-related extractor(s)
 
-use crate::api_description::ApiEndpointParameter;
 use crate::api_description::ApiSchemaGenerator;
+use crate::api_description::ApiEndpointRequestBody;
+use crate::api_description::ApiEndpointRequestBodyContent;
 use crate::api_description::{ApiEndpointBodyContentType, ExtensionMode};
 use crate::error::HttpError;
 use crate::http_util::http_dump_body;
@@ -123,10 +124,10 @@ impl ExclusiveExtractor for MultipartBody {
     fn metadata(
         _content_type: ApiEndpointBodyContentType,
     ) -> ExtractorMetadata {
-        let body = ApiEndpointParameter::new_body(
+        let body = ApiEndpointRequestBody::new(
             ApiEndpointBodyContentType::MultipartFormData,
             true,
-            ApiSchemaGenerator::Static {
+            ApiEndpointRequestBodyContent::new(ApiSchemaGenerator::Static {
                 schema: Box::new(
                     SchemaObject {
                         instance_type: Some(InstanceType::String.into()),
@@ -136,14 +137,27 @@ impl ExclusiveExtractor for MultipartBody {
                     .into(),
                 ),
                 dependencies: indexmap::IndexMap::default(),
-            },
-            vec![],
+            }),
         );
         ExtractorMetadata {
             extension_mode: ExtensionMode::None,
-            parameters: vec![body],
+            parameters: vec![],
+            request_body: Some(body),
         }
     }
+}
+
+fn schema_request_body(
+    content_type: ApiEndpointBodyContentType,
+    required: bool,
+    schema: ApiSchemaGenerator,
+    examples: Vec<String>,
+) -> ApiEndpointRequestBody {
+    ApiEndpointRequestBody::new(
+        content_type,
+        required,
+        ApiEndpointRequestBodyContent::new(schema).examples(examples),
+    )
 }
 
 /// Given an HTTP request, attempt to read the body, parse it according
@@ -249,7 +263,7 @@ where
     }
 
     fn metadata(content_type: ApiEndpointBodyContentType) -> ExtractorMetadata {
-        let body = ApiEndpointParameter::new_body(
+        let body = schema_request_body(
             content_type,
             true,
             ApiSchemaGenerator::Gen {
@@ -260,7 +274,8 @@ where
         );
         ExtractorMetadata {
             extension_mode: ExtensionMode::None,
-            parameters: vec![body],
+            parameters: vec![],
+            request_body: Some(body),
         }
     }
 }
@@ -476,7 +491,8 @@ impl ExclusiveExtractor for StreamingBody {
 
 fn untyped_metadata() -> ExtractorMetadata {
     ExtractorMetadata {
-        parameters: vec![ApiEndpointParameter::new_body(
+        parameters: vec![],
+        request_body: Some(schema_request_body(
             ApiEndpointBodyContentType::Bytes,
             true,
             ApiSchemaGenerator::Static {
@@ -491,7 +507,7 @@ fn untyped_metadata() -> ExtractorMetadata {
                 dependencies: indexmap::IndexMap::default(),
             },
             vec![],
-        )],
+        )),
         extension_mode: ExtensionMode::None,
     }
 }

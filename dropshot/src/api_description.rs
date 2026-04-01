@@ -13,6 +13,7 @@ use crate::router::route_path_to_segments;
 use crate::router::HttpRouter;
 use crate::router::PathSegment;
 use crate::schema_util::j2oas_schema;
+use crate::schema_util::make_subschema_for;
 use crate::server::ServerContext;
 use crate::type_util::type_is_scalar;
 use crate::type_util::type_is_string_enum;
@@ -23,6 +24,7 @@ use crate::CONTENT_TYPE_URL_ENCODED;
 
 use http::Method;
 use http::StatusCode;
+use schemars::JsonSchema;
 use serde::de::Error;
 use serde::Deserialize;
 use serde::Serialize;
@@ -51,6 +53,7 @@ pub struct ApiEndpoint<Context: ServerContext> {
     pub method: Method,
     pub path: String,
     pub parameters: Vec<ApiEndpointParameter>,
+    pub request_body: Option<ApiEndpointRequestBody>,
     pub body_content_type: ApiEndpointBodyContentType,
     /// An override for the maximum allowed size of the request body.
     ///
@@ -93,6 +96,7 @@ impl<'a, Context: ServerContext> ApiEndpoint<Context> {
             method,
             path: path.to_string(),
             parameters: func_parameters.parameters,
+            request_body: func_parameters.request_body,
             body_content_type,
             request_body_max_bytes: None,
             response,
@@ -201,6 +205,7 @@ impl<'a> ApiEndpoint<StubContext> {
             method,
             path: path.to_string(),
             parameters: func_parameters.parameters,
+            request_body: func_parameters.request_body,
             body_content_type,
             request_body_max_bytes: None,
             response,
@@ -301,7 +306,7 @@ pub enum ApiEndpointParameterMetadata {
     Body(ApiEndpointBodyContentType),
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Hash)]
 pub enum ApiEndpointBodyContentType {
     /// application/octet-stream
     Bytes,
@@ -312,6 +317,86 @@ pub enum ApiEndpointBodyContentType {
     UrlEncoded,
     /// multipart/form-data
     MultipartFormData,
+}
+
+#[derive(Debug)]
+pub struct ApiEndpointRequestBody {
+    pub required: bool,
+    pub content:
+        indexmap::IndexMap<ApiEndpointBodyContentType, ApiEndpointRequestBodyContent>,
+}
+
+impl ApiEndpointRequestBody {
+    pub fn for_type<T: JsonSchema>(
+        content_type: ApiEndpointBodyContentType,
+        required: bool,
+    ) -> Self {
+        Self::new(
+            content_type,
+            required,
+            ApiEndpointRequestBodyContent::for_type::<T>(),
+        )
+    }
+
+    pub fn new(
+        content_type: ApiEndpointBodyContentType,
+        required: bool,
+        content: ApiEndpointRequestBodyContent,
+    ) -> Self {
+        let mut content_map = indexmap::IndexMap::new();
+        content_map.insert(content_type, content);
+        Self {
+            required,
+            content: content_map,
+        }
+    }
+
+    pub fn add_content(
+        mut self,
+        content_type: ApiEndpointBodyContentType,
+        content: ApiEndpointRequestBodyContent,
+    ) -> Self {
+        self.content.insert(content_type, content);
+        self
+    }
+}
+
+#[derive(Debug)]
+pub struct ApiEndpointRequestBodyContent {
+    pub schema: ApiSchemaGenerator,
+    pub examples: Vec<String>,
+    pub encoding: indexmap::IndexMap<String, openapiv3::Encoding>,
+}
+
+impl ApiEndpointRequestBodyContent {
+    pub fn for_type<T: JsonSchema>() -> Self {
+        Self::new(ApiSchemaGenerator::Gen {
+            name: T::schema_name,
+            schema: make_subschema_for::<T>,
+        })
+    }
+
+    pub fn new(schema: ApiSchemaGenerator) -> Self {
+        Self {
+            schema,
+            examples: Vec::new(),
+            encoding: indexmap::IndexMap::new(),
+        }
+    }
+
+    pub fn examples(mut self, examples: Vec<String>) -> Self {
+        self.examples = examples;
+        self
+    }
+
+    pub fn encoding(
+        mut self,
+        field_name: impl Into<String>,
+        encoding: openapiv3::Encoding,
+    ) -> Self {
+        self.encoding.insert(field_name.into(), encoding);
+        self
+    }
 }
 
 impl ApiEndpointBodyContentType {
@@ -407,6 +492,15 @@ impl std::fmt::Debug for ApiSchemaGenerator {
             ApiSchemaGenerator::Static { schema, .. } => {
                 f.write_str(format!("{:?}", schema).as_str())
             }
+        }
+    }
+}
+
+impl ApiSchemaGenerator {
+    pub fn for_type<T: schemars::JsonSchema>() -> Self {
+        Self::Gen {
+            name: T::schema_name,
+            schema: make_subschema_for::<T>,
         }
     }
 }
@@ -846,43 +940,77 @@ impl<Context: ServerContext> ApiDescription<Context> {
                 .collect::<Vec<_>>();
 
             operation.request_body = endpoint
-                .parameters
-                .iter()
-                .filter_map(|param| {
-                    let mime_type = match &param.metadata {
-                        ApiEndpointParameterMetadata::Body(ct) => {
-                            ct.mime_type()
-                        }
-                        _ => return None,
-                    };
-
-                    let (name, js) = match &param.schema {
-                        ApiSchemaGenerator::Gen { name, schema } => {
-                            (Some(name()), schema(&mut generator))
-                        }
-                        ApiSchemaGenerator::Static { schema, dependencies } => {
-                            definitions.extend(dependencies.clone());
-                            (None, schema.as_ref().clone())
-                        }
-                    };
-                    let schema = j2oas_schema(name.as_ref(), &js);
-
+                .request_body
+                .as_ref()
+                .map(|request_body| {
                     let mut content = indexmap::IndexMap::new();
-                    content.insert(
-                        mime_type.to_string(),
-                        openapiv3::MediaType {
-                            schema: Some(schema),
-                            ..Default::default()
-                        },
-                    );
+                    for (content_type, request_content) in &request_body.content {
+                        let (name, js) = match &request_content.schema {
+                            ApiSchemaGenerator::Gen { name, schema } => {
+                                (Some(name()), schema(&mut generator))
+                            }
+                            ApiSchemaGenerator::Static { schema, dependencies } => {
+                                definitions.extend(dependencies.clone());
+                                (None, schema.as_ref().clone())
+                            }
+                        };
+                        let schema = j2oas_schema(name.as_ref(), &js);
+                        content.insert(
+                            content_type.mime_type().to_string(),
+                            openapiv3::MediaType {
+                                schema: Some(schema),
+                                encoding: request_content.encoding.clone(),
+                                ..Default::default()
+                            },
+                        );
+                    }
 
-                    Some(openapiv3::ReferenceOr::Item(openapiv3::RequestBody {
+                    openapiv3::ReferenceOr::Item(openapiv3::RequestBody {
                         content,
-                        required: true,
+                        required: request_body.required,
                         ..Default::default()
-                    }))
+                    })
                 })
-                .next();
+                .or_else(|| {
+                    endpoint
+                        .parameters
+                        .iter()
+                        .filter_map(|param| {
+                            let mime_type = match &param.metadata {
+                                ApiEndpointParameterMetadata::Body(ct) => {
+                                    ct.mime_type()
+                                }
+                                _ => return None,
+                            };
+
+                            let (name, js) = match &param.schema {
+                                ApiSchemaGenerator::Gen { name, schema } => {
+                                    (Some(name()), schema(&mut generator))
+                                }
+                                ApiSchemaGenerator::Static { schema, dependencies } => {
+                                    definitions.extend(dependencies.clone());
+                                    (None, schema.as_ref().clone())
+                                }
+                            };
+                            let schema = j2oas_schema(name.as_ref(), &js);
+
+                            let mut content = indexmap::IndexMap::new();
+                            content.insert(
+                                mime_type.to_string(),
+                                openapiv3::MediaType {
+                                    schema: Some(schema),
+                                    ..Default::default()
+                                },
+                            );
+
+                            Some(openapiv3::ReferenceOr::Item(openapiv3::RequestBody {
+                                content,
+                                required: true,
+                                ..Default::default()
+                            }))
+                        })
+                        .next()
+                });
 
             match &endpoint.extension_mode {
                 ExtensionMode::None => {}

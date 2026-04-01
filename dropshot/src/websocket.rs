@@ -209,6 +209,7 @@ impl ExclusiveExtractor for WebsocketUpgrade {
         ExtractorMetadata {
             parameters: vec![],
             extension_mode: ExtensionMode::Websocket,
+            request_body: None,
         }
     }
 }

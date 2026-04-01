@@ -3,7 +3,9 @@
 use dropshot::{
     channel, endpoint, http_response_found, http_response_see_other,
     http_response_temporary_redirect, ApiDescription,
-    ApiDescriptionRegisterError, FreeformBody, Header, HttpError,
+    ApiDescriptionRegisterError, ApiEndpointBodyContentType,
+    ApiEndpointRequestBody, ApiEndpointRequestBodyContent, FreeformBody, Header,
+    HttpError,
     HttpResponseAccepted, HttpResponseCreated, HttpResponseDeleted,
     HttpResponseFound, HttpResponseHeaders, HttpResponseOk,
     HttpResponseSeeOther, HttpResponseTemporaryRedirect,
@@ -11,6 +13,9 @@ use dropshot::{
     RequestContext, ResultsPage, TagConfig, TagDetails, TypedBody, UntypedBody,
 };
 use dropshot::{Body, WebsocketConnection};
+use schemars::schema::InstanceType;
+use schemars::schema::Schema;
+use schemars::schema::SchemaObject;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, io::Cursor, str::from_utf8};
@@ -168,6 +173,91 @@ async fn handler6(
 async fn handler7(
     _rqctx: RequestContext<()>,
     _dump: UntypedBody,
+) -> Result<HttpResponseUpdatedNoContent, HttpError> {
+    unimplemented!();
+}
+
+#[derive(Debug)]
+struct UploadFile;
+
+impl JsonSchema for UploadFile {
+    fn schema_name() -> String {
+        "UploadFile".to_string()
+    }
+
+    fn json_schema(
+        _gen: &mut schemars::gen::SchemaGenerator,
+    ) -> schemars::schema::Schema {
+        Schema::Object(SchemaObject {
+            instance_type: Some(InstanceType::String.into()),
+            format: Some("binary".to_string()),
+            ..Default::default()
+        })
+    }
+}
+
+#[allow(dead_code)]
+#[derive(JsonSchema)]
+struct MultipartEncodedBody {
+    body: BodyParam,
+    files: Vec<UploadFile>,
+}
+
+#[derive(Debug)]
+struct MultipartEncodedExtractor;
+
+#[async_trait::async_trait]
+impl dropshot::ExclusiveExtractor for MultipartEncodedExtractor {
+    async fn from_request<Context: dropshot::ServerContext>(
+        _rqctx: &RequestContext<Context>,
+        _request: hyper::Request<dropshot::Body>,
+    ) -> Result<Self, HttpError> {
+        Ok(Self)
+    }
+
+    fn metadata(
+        _body_content_type: dropshot::ApiEndpointBodyContentType,
+    ) -> dropshot::ExtractorMetadata {
+        let request_body = ApiEndpointRequestBody::new(
+            ApiEndpointBodyContentType::MultipartFormData,
+            true,
+            ApiEndpointRequestBodyContent::for_type::<MultipartEncodedBody>()
+                .encoding(
+                    "body",
+                    openapiv3::Encoding {
+                        content_type: Some(
+                            dropshot::CONTENT_TYPE_JSON.to_string(),
+                        ),
+                        ..Default::default()
+                    },
+                )
+                .encoding(
+                    "files",
+                    openapiv3::Encoding {
+                        content_type: Some(
+                            dropshot::CONTENT_TYPE_OCTET_STREAM.to_string(),
+                        ),
+                        ..Default::default()
+                    },
+                ),
+        );
+
+        dropshot::ExtractorMetadata {
+            extension_mode: dropshot::ExtensionMode::None,
+            parameters: vec![],
+            request_body: Some(request_body),
+        }
+    }
+}
+
+#[endpoint {
+    method = POST,
+    path = "/multipart-encoded",
+    tags = ["it"],
+}]
+async fn handler34(
+    _rqctx: RequestContext<()>,
+    _body: MultipartEncodedExtractor,
 ) -> Result<HttpResponseUpdatedNoContent, HttpError> {
     unimplemented!();
 }
@@ -689,6 +779,7 @@ impl dropshot::SharedExtractor for CustomShared32 {
         dropshot::ExtractorMetadata {
             extension_mode: dropshot::ExtensionMode::None,
             parameters: vec![],
+            request_body: None,
         }
     }
 }
@@ -725,6 +816,7 @@ fn make_api(
     api.register(handler5)?;
     api.register(handler6)?;
     api.register(handler7)?;
+    api.register(handler34)?;
     api.register(handler8)?;
     api.register(handler9)?;
     api.register(handler10)?;

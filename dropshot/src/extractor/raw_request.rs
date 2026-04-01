@@ -37,6 +37,7 @@ impl ExclusiveExtractor for RawRequest {
         ExtractorMetadata {
             parameters: vec![],
             extension_mode: ExtensionMode::None,
+            request_body: None,
         }
     }
 }

@@ -358,6 +358,43 @@
         }
       }
     },
+    "/multipart-encoded": {
+      "post": {
+        "tags": [
+          "it"
+        ],
+        "operationId": "handler34",
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/MultipartEncodedBody"
+              },
+              "encoding": {
+                "body": {
+                  "contentType": "application/json"
+                },
+                "files": {
+                  "contentType": "application/octet-stream"
+                }
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "resource updated"
+          },
+          "4XX": {
+            "$ref": "#/components/responses/Error"
+          },
+          "5XX": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
     "/other_thing": {
       "get": {
         "tags": [
@@ -1248,6 +1285,24 @@
           "request_id"
         ]
       },
+      "MultipartEncodedBody": {
+        "type": "object",
+        "properties": {
+          "body": {
+            "$ref": "#/components/schemas/BodyParam"
+          },
+          "files": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/UploadFile"
+            }
+          }
+        },
+        "required": [
+          "body",
+          "files"
+        ]
+      },
       "NestedObjectWithExample": {
         "example": {
           "nick_name": "baz"
@@ -1398,6 +1453,10 @@
         "required": [
           "items"
         ]
+      },
+      "UploadFile": {
+        "type": "string",
+        "format": "binary"
       },
       "WithXRustTypeForXRustAParam": {
         "x-rust-type": {
