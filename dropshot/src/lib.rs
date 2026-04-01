@@ -898,6 +898,7 @@ pub use api_description::ApiEndpointParameter;
 pub use api_description::ApiEndpointParameterLocation;
 pub use api_description::ApiEndpointRequestBody;
 pub use api_description::ApiEndpointRequestBodyContent;
+pub use api_description::ApiEndpointRequestBodyEncoding;
 pub use api_description::ApiEndpointResponse;
 pub use api_description::ApiEndpointVersions;
 pub use api_description::EndpointTagPolicy;

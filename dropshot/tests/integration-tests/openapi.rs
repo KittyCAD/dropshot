@@ -4,8 +4,8 @@ use dropshot::{
     channel, endpoint, http_response_found, http_response_see_other,
     http_response_temporary_redirect, ApiDescription,
     ApiDescriptionRegisterError, ApiEndpointBodyContentType,
-    ApiEndpointRequestBody, ApiEndpointRequestBodyContent, FreeformBody, Header,
-    HttpError,
+    ApiEndpointRequestBody, ApiEndpointRequestBodyContent,
+    ApiEndpointRequestBodyEncoding, FreeformBody, Header, HttpError,
     HttpResponseAccepted, HttpResponseCreated, HttpResponseDeleted,
     HttpResponseFound, HttpResponseHeaders, HttpResponseOk,
     HttpResponseSeeOther, HttpResponseTemporaryRedirect,
@@ -224,21 +224,13 @@ impl dropshot::ExclusiveExtractor for MultipartEncodedExtractor {
             ApiEndpointRequestBodyContent::for_type::<MultipartEncodedBody>()
                 .encoding(
                     "body",
-                    openapiv3::Encoding {
-                        content_type: Some(
-                            dropshot::CONTENT_TYPE_JSON.to_string(),
-                        ),
-                        ..Default::default()
-                    },
+                    ApiEndpointRequestBodyEncoding::new()
+                        .content_type(dropshot::CONTENT_TYPE_JSON),
                 )
                 .encoding(
                     "files",
-                    openapiv3::Encoding {
-                        content_type: Some(
-                            dropshot::CONTENT_TYPE_OCTET_STREAM.to_string(),
-                        ),
-                        ..Default::default()
-                    },
+                    ApiEndpointRequestBodyEncoding::new()
+                        .content_type(dropshot::CONTENT_TYPE_OCTET_STREAM),
                 ),
         );
 

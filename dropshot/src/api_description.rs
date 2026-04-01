@@ -275,20 +275,6 @@ impl ApiEndpointParameter {
         }
     }
 
-    pub fn new_body(
-        content_type: ApiEndpointBodyContentType,
-        required: bool,
-        schema: ApiSchemaGenerator,
-        examples: Vec<String>,
-    ) -> Self {
-        Self {
-            metadata: ApiEndpointParameterMetadata::Body(content_type),
-            required,
-            schema,
-            examples,
-            description: None,
-        }
-    }
 }
 
 #[derive(Debug, Clone)]
@@ -303,7 +289,6 @@ pub enum ApiEndpointParameterMetadata {
     Path(String),
     Query(String),
     Header(String),
-    Body(ApiEndpointBodyContentType),
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Hash)]
@@ -364,8 +349,8 @@ impl ApiEndpointRequestBody {
 #[derive(Debug)]
 pub struct ApiEndpointRequestBodyContent {
     pub schema: ApiSchemaGenerator,
-    pub examples: Vec<String>,
-    pub encoding: indexmap::IndexMap<String, openapiv3::Encoding>,
+    pub encoding:
+        indexmap::IndexMap<String, ApiEndpointRequestBodyEncoding>,
 }
 
 impl ApiEndpointRequestBodyContent {
@@ -379,23 +364,40 @@ impl ApiEndpointRequestBodyContent {
     pub fn new(schema: ApiSchemaGenerator) -> Self {
         Self {
             schema,
-            examples: Vec::new(),
             encoding: indexmap::IndexMap::new(),
         }
-    }
-
-    pub fn examples(mut self, examples: Vec<String>) -> Self {
-        self.examples = examples;
-        self
     }
 
     pub fn encoding(
         mut self,
         field_name: impl Into<String>,
-        encoding: openapiv3::Encoding,
+        encoding: ApiEndpointRequestBodyEncoding,
     ) -> Self {
         self.encoding.insert(field_name.into(), encoding);
         self
+    }
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ApiEndpointRequestBodyEncoding {
+    pub content_type: Option<String>,
+}
+
+impl ApiEndpointRequestBodyEncoding {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn content_type(mut self, content_type: impl Into<String>) -> Self {
+        self.content_type = Some(content_type.into());
+        self
+    }
+
+    fn to_openapiv3(&self) -> openapiv3::Encoding {
+        openapiv3::Encoding {
+            content_type: self.content_type.clone(),
+            ..Default::default()
+        }
     }
 }
 
@@ -871,9 +873,8 @@ impl<Context: ServerContext> ApiDescription<Context> {
             operation.parameters = endpoint
                 .parameters
                 .iter()
-                .filter_map(|param| {
+                .map(|param| {
                     let (name, location) = match &param.metadata {
-                        ApiEndpointParameterMetadata::Body(_) => return None,
                         ApiEndpointParameterMetadata::Path(name) => {
                             (name, ApiEndpointParameterLocation::Path)
                         }
@@ -910,30 +911,30 @@ impl<Context: ServerContext> ApiDescription<Context> {
                     };
                     match location {
                         ApiEndpointParameterLocation::Query => {
-                            Some(openapiv3::ReferenceOr::Item(
+                            openapiv3::ReferenceOr::Item(
                                 openapiv3::Parameter::Query {
                                     parameter_data,
                                     allow_reserved: false,
                                     style: openapiv3::QueryStyle::Form,
                                     allow_empty_value: None,
                                 },
-                            ))
+                            )
                         }
                         ApiEndpointParameterLocation::Path => {
-                            Some(openapiv3::ReferenceOr::Item(
+                            openapiv3::ReferenceOr::Item(
                                 openapiv3::Parameter::Path {
                                     parameter_data,
                                     style: openapiv3::PathStyle::Simple,
                                 },
-                            ))
+                            )
                         }
                         ApiEndpointParameterLocation::Header => {
-                            Some(openapiv3::ReferenceOr::Item(
+                            openapiv3::ReferenceOr::Item(
                                 openapiv3::Parameter::Header {
                                     parameter_data,
                                     style: Default::default(),
                                 },
-                            ))
+                            )
                         }
                     }
                 })
@@ -959,7 +960,16 @@ impl<Context: ServerContext> ApiDescription<Context> {
                             content_type.mime_type().to_string(),
                             openapiv3::MediaType {
                                 schema: Some(schema),
-                                encoding: request_content.encoding.clone(),
+                                encoding: request_content
+                                    .encoding
+                                    .iter()
+                                    .map(|(field_name, encoding)| {
+                                        (
+                                            field_name.clone(),
+                                            encoding.to_openapiv3(),
+                                        )
+                                    })
+                                    .collect(),
                                 ..Default::default()
                             },
                         );
@@ -970,46 +980,6 @@ impl<Context: ServerContext> ApiDescription<Context> {
                         required: request_body.required,
                         ..Default::default()
                     })
-                })
-                .or_else(|| {
-                    endpoint
-                        .parameters
-                        .iter()
-                        .filter_map(|param| {
-                            let mime_type = match &param.metadata {
-                                ApiEndpointParameterMetadata::Body(ct) => {
-                                    ct.mime_type()
-                                }
-                                _ => return None,
-                            };
-
-                            let (name, js) = match &param.schema {
-                                ApiSchemaGenerator::Gen { name, schema } => {
-                                    (Some(name()), schema(&mut generator))
-                                }
-                                ApiSchemaGenerator::Static { schema, dependencies } => {
-                                    definitions.extend(dependencies.clone());
-                                    (None, schema.as_ref().clone())
-                                }
-                            };
-                            let schema = j2oas_schema(name.as_ref(), &js);
-
-                            let mut content = indexmap::IndexMap::new();
-                            content.insert(
-                                mime_type.to_string(),
-                                openapiv3::MediaType {
-                                    schema: Some(schema),
-                                    ..Default::default()
-                                },
-                            );
-
-                            Some(openapiv3::ReferenceOr::Item(openapiv3::RequestBody {
-                                content,
-                                required: true,
-                                ..Default::default()
-                            }))
-                        })
-                        .next()
                 });
 
             match &endpoint.extension_mode {

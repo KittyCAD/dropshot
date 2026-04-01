@@ -151,12 +151,11 @@ fn schema_request_body(
     content_type: ApiEndpointBodyContentType,
     required: bool,
     schema: ApiSchemaGenerator,
-    examples: Vec<String>,
 ) -> ApiEndpointRequestBody {
     ApiEndpointRequestBody::new(
         content_type,
         required,
-        ApiEndpointRequestBodyContent::new(schema).examples(examples),
+        ApiEndpointRequestBodyContent::new(schema),
     )
 }
 
@@ -270,7 +269,6 @@ where
                 name: BodyType::schema_name,
                 schema: make_subschema_for::<BodyType>,
             },
-            vec![],
         );
         ExtractorMetadata {
             extension_mode: ExtensionMode::None,
@@ -506,7 +504,6 @@ fn untyped_metadata() -> ExtractorMetadata {
                 ),
                 dependencies: indexmap::IndexMap::default(),
             },
-            vec![],
         )),
         extension_mode: ExtensionMode::None,
     }
